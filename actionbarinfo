@@ -1,0 +1,141 @@
+import { world, system } from "@minecraft/server";
+
+const MAX_MONEY = 99999999;
+const MAX_GEM = 99999;
+
+const TIER_ICON = {
+    1: "①",
+    2: "②",
+    3: "③",
+    4: "④",
+    5: "⑤",
+};
+
+function getScore(player, objective) {
+    try {
+        const obj = world.scoreboard.getObjective(objective);
+        if (!obj) return 0;
+
+        return obj.getScore(player.scoreboardIdentity) ?? 0;
+    } catch {
+        return 0;
+    }
+}
+
+function limit(value, max) {
+    return value > max ? `+${max}` : `${value}`;
+}
+
+function getTierIcon(tier) {
+    return TIER_ICON[tier] ?? "◇";
+}
+
+function getMinerGauge(percent) {
+
+    percent = Math.max(0, Math.min(100, percent));
+
+    const filled = Math.floor(percent / 10);
+
+    let gauge = "";
+
+    // 왼쪽
+    gauge += filled >= 1 ? "" : "";
+
+    // 가운데 8칸
+    for (let i = 2; i <= 9; i++) {
+        gauge += filled >= i ? "" : "";
+    }
+
+    // 오른쪽
+    gauge += percent >= 100 ? "" : "";
+
+    return gauge;
+}
+function createBaseUI(player) {
+
+    const tier = getScore(player, "Tier");
+    const money = formatMoney(getScore(player, "Money"), player.isSneaking);
+    const gem = limit(getScore(player, "Gem"), MAX_GEM);
+
+    return (
+        `§f티어 §7: §e${getTierIcon(tier)} ${tier}` +
+        `   §f §7: §a${money}` +
+        `   §f §7: §b${gem}`
+    );
+}
+
+function createMinerUI(player) {
+
+    const level = getScore(player, "MinerLv");
+    if (level < 2) return null;
+
+    const item = player.getComponent("minecraft:equippable")
+        ?.getEquipment("Mainhand");
+
+    if (!item || !item.typeId.endsWith("_pickaxe"))
+        return null;
+
+    const mineCount = getScore(player, "MinerCount");
+    const feverTimer = getScore(player, "MinerFeverTimer");
+
+    const percent = feverTimer > 0 ? 100 : Math.min(100, mineCount);
+
+    // 위 줄과 동일한 문자열 생성
+    const baseText = createBaseUI(player);
+
+    // § 색 코드 제거
+    const visibleLength = baseText.replace(/§./g, "").length;
+
+    // 원하는 위치가 될 때까지 숫자만 조절
+    const space = " ".repeat(Math.max(0, Math.floor(visibleLength / 3) - 5));
+
+    return `${space}§6${getMinerGauge(percent)} §7(${percent}%)`;
+}
+
+system.runInterval(() => {
+
+    for (const player of world.getPlayers()) {
+
+        const lines = [];
+
+        const miner = createMinerUI(player);
+
+        if (miner)
+            lines.push(miner);
+
+        lines.push(createBaseUI(player));
+
+        player.runCommand(
+            `titleraw @s actionbar {"rawtext":[{"text":"${lines.join("\n")}"}]}`
+        );
+    }
+
+}, 1);
+
+
+function addComma(value) {
+    return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+
+function formatMoney(value, full = false) {
+
+    if (full)
+        return value > MAX_MONEY
+            ? `${addComma(MAX_MONEY)}+`
+            : addComma(value);
+
+    if (value >= 100000000) {
+        const n = (value / 100000000).toFixed(1).replace(".0", "");
+        return `${n}억`;
+    }
+
+    if (value >= 10000) {
+        const n = (value / 10000).toFixed(1).replace(".0", "");
+        return `${n}만`;
+    }
+
+    return addComma(value);
+}
+
+
