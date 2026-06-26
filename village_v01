@@ -1,0 +1,1084 @@
+import {
+    world,
+    system
+} from "@minecraft/server";
+
+import {
+    ActionFormData,
+    ModalFormData
+} from "@minecraft/server-ui";
+
+
+
+
+
+//-----------네잎클로버--------------
+
+world.afterEvents.itemUse.subscribe(async (event) => {
+
+    const player = event.source;
+
+    if (event.itemStack.typeId !== "minecraft:gold_nugget") return;
+
+    const menu = new ActionFormData()
+        .title("메인 메뉴")
+        .body("테스트 메뉴");
+
+    menu.button("탭 1");
+    menu.button("탭 2");
+    menu.button("탭 3");
+    menu.button("🏠 마을");
+
+    const result = await menu.show(player);
+
+    if (result.canceled) return;
+
+    switch (result.selection) {
+
+        case 0:
+            player.sendMessage("탭1");
+            break;
+
+        case 1:
+            player.sendMessage("탭2");
+            break;
+
+        case 2:
+            player.sendMessage("탭3");
+            break;
+
+        case 3:
+            showVillageMenu(player);
+            break;
+    }
+
+});
+
+async function showVillageMenu(player) {
+
+    const hasVillage = villageManager.has(player);
+
+    const form = new ActionFormData()
+        .title("🏠 마을")
+        .body("마을 메뉴");
+
+    const buttons = [];
+
+    if (!hasVillage) {
+
+        form.button("🏗 마을 생성");
+        buttons.push("create");
+
+    } else {
+
+        form.button("🚪 마을 이동");
+        buttons.push("move");
+
+        form.button("📜 마을 정보");
+        buttons.push("info");
+
+        form.button("❌ 마을 탈퇴");
+        buttons.push("leave");
+
+    }
+
+    form.button("⬅ 뒤로");
+    buttons.push("back");
+
+    const result = await form.show(player);
+
+    if (result.canceled) return;
+
+    switch (buttons[result.selection]) {
+
+        case "create":
+            villageManager.showCreateForm(player);
+            break;
+
+        case "move":
+            villageManager.teleport(player);
+            break;
+
+        case "info":
+            villageManager.showInfo(player);
+            break;
+
+        case "leave":
+            villageManager.leave(player);
+            break;
+
+        case "back":
+            return;
+    }
+
+}
+
+
+
+
+
+
+world.afterEvents.itemUse.subscribe((event) => {
+
+    if (event.itemStack.typeId !== "minecraft:stick") return;
+
+    villageManager.showMainMenu(event.source);
+
+});
+
+
+
+console.warn("[Village] File Loaded");
+
+system.run(() => {
+    console.warn("[Village] System Ready");
+});
+
+world.afterEvents.playerSpawn.subscribe((event) => {
+    if (!event.initialSpawn) return;
+
+    console.warn(`[Village] ${event.player.name} Joined`);
+});
+
+
+
+
+
+
+
+
+const DATA_KEY = "village:data";
+
+const CREATE_COST = 10000;
+const VILLAGE_RADIUS = 1000;
+const VILLAGE_DISTANCE = 5000;
+
+// 나중에 Custom Dimension으로 변경
+const VILLAGE_DIMENSION = "overworld";
+
+class VillageManager {
+
+    constructor() {
+
+        this.data = {
+
+        villages: {},
+
+        playerVillage: {}
+
+    };
+
+        this.load();
+
+    }
+
+    load() {
+
+        try {
+
+            const raw = world.getDynamicProperty(DATA_KEY);
+
+            if (!raw) return;
+
+            this.data = JSON.parse(raw);
+
+        } catch {
+
+            this.data = {
+
+            villages:{},
+
+            playerVillage:{}
+
+        };
+
+        }
+
+        if (!this.data.playerVillage) {
+
+        this.data.playerVillage = {};
+
+    }
+
+        if (!this.data.villages) {
+
+        this.data.villages = {};
+
+    }
+
+    }
+
+    
+
+    save() {
+
+        world.setDynamicProperty(
+            DATA_KEY,
+            JSON.stringify(this.data)
+        );
+
+    }
+
+    reset() {
+
+        this.data = {
+
+            villages: {},
+
+            playerVillage: {}
+
+        };
+
+        for (const player of world.getPlayers()) {
+
+            player.removeTag("VillageHead");
+
+        }
+
+        this.save();
+
+    }
+
+    get(player) {
+
+        const villageId =
+        this.data.playerVillage[player.id];
+
+    if(!villageId) return null;
+
+    return this.data.villages[villageId];
+
+    }
+
+    has(player) {
+
+        return this.get(player) != null;
+
+    }
+
+    nextCenter() {
+
+        const index = Object.keys(
+            this.data.villages
+        ).length;
+
+        return {
+
+            x: index * VILLAGE_DISTANCE,
+            y: 100,
+            z: 0
+
+        };
+
+    }
+
+    getMoney(player) {
+
+        try {
+
+            const objective =
+                world.scoreboard.getObjective("Money");
+
+            if (!objective) return 0;
+
+            return objective.getScore(
+                player.scoreboardIdentity
+            ) ?? 0;
+
+        } catch {
+
+            return 0;
+
+        }
+
+    }
+
+
+    getLevel(player){
+
+    try{
+
+        const objective =
+            world.scoreboard.getObjective("Level");
+
+        if(!objective) return 0;
+
+        return objective.getScore(
+            player.scoreboardIdentity
+        ) ?? 0;
+
+    }catch{
+
+        return 0;
+
+    }
+
+}
+
+
+
+    setMoney(player, value) {
+
+        const objective =
+            world.scoreboard.getObjective("Money");
+
+        if (!objective) return;
+
+        objective.setScore(
+            player.scoreboardIdentity,
+            value
+        );
+
+    }
+
+        create(player, name) {
+
+        if (this.has(player)) {
+            return {
+                ok: false,
+                message: "§c이미 마을이 있습니다."
+            };
+        }
+
+        const money = this.getMoney(player);
+
+        if (money < CREATE_COST) {
+            return {
+                ok: false,
+                message: `§cMoney가 ${CREATE_COST} 필요합니다.`
+            };
+        }
+
+        const center = this.nextCenter();
+
+        this.setMoney(
+            player,
+            money - CREATE_COST
+        );
+
+        const villageId =
+        "village_" +
+        Date.now();
+        
+        this.data.villages[villageId] = {
+
+            id:villageId,
+
+            owner: player.id,
+
+            ownerName: player.name,
+
+            name,
+
+            level: 1,
+
+            donate: 0,
+
+            members: [
+
+                {
+
+                    id: player.id,
+
+                    name: player.name,
+
+                    role: "head",
+
+                    level: this.getLevel(player),
+
+                    donate: 0,
+
+                    joinTime: Date.now()
+
+                }
+
+            ],
+
+            center
+
+        };
+
+        this.data.playerVillage[player.id] = villageId;
+
+        player.addTag("VillageHead");
+
+        this.save();
+
+        return {
+            ok: true,
+            village: this.data.villages[player.id]
+        };
+
+    }
+
+    teleport(player) {
+
+        const village = this.get(player);
+
+        if (!village) {
+
+            player.sendMessage(
+                "§c소속된 마을이 없습니다."
+            );
+
+            return;
+
+        }
+
+        player.teleport(
+            village.center,
+            {
+                dimension: world.getDimension(
+                    VILLAGE_DIMENSION
+                )
+            }
+        );
+
+    }
+
+    async showCreateForm(player) {
+
+        const form =
+            new ModalFormData();
+
+        form.title("마을 생성");
+
+        form.textField(
+            "마을 이름",
+            "예) 새싹마을"
+        );
+
+        const result =
+            await form.show(player);
+
+        if (
+            result.canceled
+        ) return;
+
+        const name =
+            result.formValues[0]
+                ?.trim();
+
+        if (!name) {
+
+            player.sendMessage(
+                "§c이름을 입력하세요."
+            );
+
+            return;
+
+        }
+
+        if (
+            name.length < 2 ||
+            name.length > 12
+        ) {
+
+            player.sendMessage(
+                "§c2~12글자로 입력하세요."
+            );
+
+            return;
+
+        }
+
+        const success =
+            this.create(
+                player,
+                name
+            );
+
+        if (!success.ok) {
+
+            player.sendMessage(
+                success.message
+            );
+
+            return;
+
+        }
+
+        player.sendMessage(
+            `§a${name} 마을이 생성되었습니다.`
+        );
+
+        // 추후 시작 마을 Structure
+        // world.structureManager.place(...)
+
+        this.teleport(player);
+
+        }
+
+        showInfo(player) {
+
+            
+
+        const village = this.get(player);
+
+        if (!village) {
+
+            player.sendMessage(
+                "§c소속된 마을이 없습니다."
+            );
+
+            return;
+
+        }
+
+
+
+        player.sendMessage(
+`§6========== 마을 정보 ==========
+
+§e이름 §f: ${village.name}
+§e레벨 §f: ${village.level}
+§e인원 §f: ${village.members.length}
+§e기부금 §f: ${village.donate}
+
+§7X : ${village.center.x}
+§7Y : ${village.center.y}
+§7Z : ${village.center.z}`
+        );
+
+    }
+
+
+        isHead(player) {
+
+        const village = this.get(player);
+
+        if (!village) return false;
+
+        const member = village.members.find(
+            m => m.id === player.id
+        );
+
+        if (!member) return false;
+
+        return member.role === "head";
+
+    }
+
+
+    getNextHead(village){
+
+    let highest = -1;
+
+    let candidates = [];
+
+    for(const member of village.members){
+
+        const player =
+            [...world.getPlayers()]
+            .find(p => p.id === member.id);
+
+        if(!player) continue;
+
+        const level =
+            this.getLevel(player);
+
+        if(level > highest){
+
+            highest = level;
+
+            candidates = [
+                member
+            ];
+
+        }else if(level === highest){
+
+            candidates.push(
+                member
+            );
+
+        }
+
+    }
+
+    if(candidates.length === 0)
+        return null;
+
+    return candidates[
+        Math.floor(
+            Math.random() *
+            candidates.length
+        )
+    ];
+
+}
+
+    leave(player) {
+
+    const village = this.get(player);
+
+    if (!village) {
+        player.sendMessage("§c소속된 마을이 없습니다.");
+        return;
+    }
+
+    const index = village.members.findIndex(
+        m => m.id === player.id
+    );
+
+    if (index === -1) return;
+
+    const me = village.members[index];
+
+    // ===== 일반 멤버 =====
+    if (me.role !== "head") {
+
+        village.members.splice(index, 1);
+
+        delete this.data.playerVillage[player.id];
+
+        this.save();
+
+        player.sendMessage("§a마을을 탈퇴했습니다.");
+
+        return;
+    }
+
+    // ===== 이장이 혼자인 경우 =====
+    if (village.members.length === 1) {
+
+        delete this.data.villages[village.id];
+
+        delete this.data.playerVillage[player.id];
+
+        player.removeTag("VillageHead");
+
+        this.save();
+
+        player.sendMessage("§c마을이 해체되었습니다.");
+
+        return;
+    }
+
+    // ===== 이장 변경 =====
+
+    village.members.splice(index, 1);
+
+    let highest = -1;
+    let candidates = [];
+
+    for (const member of village.members) {
+
+        if (member.level > highest) {
+
+            highest = member.level;
+            candidates = [member];
+
+        } else if (member.level === highest) {
+
+            candidates.push(member);
+
+        }
+
+    }
+
+    const newHead =
+        candidates[
+            Math.floor(Math.random() * candidates.length)
+        ];
+
+    newHead.role = "head";
+
+    delete this.data.playerVillage[player.id];
+
+    player.removeTag("VillageHead");
+
+    const online = [...world.getPlayers()].find(
+        p => p.id === newHead.id
+    );
+
+    if (online) {
+
+        online.addTag("VillageHead");
+
+        online.sendMessage(
+            `§6${village.name}의 새 이장이 되었습니다.`
+        );
+
+    }
+
+    this.save();
+
+    player.sendMessage("§a마을을 탈퇴했습니다.");
+
+}
+
+    async showMainMenu(player) {
+
+    try {
+
+        const form = new ActionFormData();
+
+        form.title("마을");
+        form.body("원하는 메뉴를 선택하세요.");
+
+        form.button("🏠 마을 생성");
+        form.button("🚪 마을 이동");
+        form.button("📜 마을 정보");
+
+        const result = await form.show(player);
+
+        console.warn(JSON.stringify(result));
+
+        if (result.canceled) {
+            console.warn("FORM CANCELED");
+            return;
+        }
+
+        switch (result.selection) {
+            case 0:
+                await this.showCreateForm(player);
+                break;
+
+            case 1:
+                this.teleport(player);
+                break;
+
+            case 2:
+                this.showInfo(player);
+                break;
+        }
+
+    } catch (e) {
+
+        console.warn("FORM ERROR");
+        console.warn(e);
+
+    }
+
+
+
+
+
+}
+
+
+
+
+
+
+
+}
+
+let villageManager;
+
+system.run(() => {
+
+    villageManager =
+        new VillageManager();
+
+});
+
+
+
+
+system.runInterval(() => {
+
+    if (!villageManager) return;
+
+    for (const player of world.getPlayers()) {
+
+        if (!player.hasTag("chatSend:!마을")) continue;
+
+        player.removeTag("chatSend:!마을");
+
+        villageManager.showMainMenu(player);
+    }
+
+}, 1);
+
+
+
+
+/* ===========================
+   마을 경계
+=========================== */
+
+system.runInterval(() => {
+
+    if (!villageManager) return;
+
+    for (const player of world.getPlayers()) {
+
+        const village =
+            villageManager.get(player);
+
+        if (!village) continue;
+
+        if (
+            player.dimension.id !==
+            VILLAGE_DIMENSION
+        ) continue;
+
+        const dx =
+            player.location.x -
+            village.center.x;
+
+        const dz =
+            player.location.z -
+            village.center.z;
+
+        const distance =
+            dx * dx +
+            dz * dz;
+
+        if (
+            distance >
+            VILLAGE_RADIUS *
+            VILLAGE_RADIUS
+        ) {
+
+            player.teleport(
+                village.center,
+                {
+                    dimension:
+                        player.dimension
+                }
+            );
+
+            player.sendMessage(
+                "§c마을 밖으로 나갈 수 없습니다."
+            );
+
+        }
+
+    }
+
+}, 20);
+
+/* ===========================
+   유틸
+=========================== */
+
+function isValidVillageName(name) {
+
+    if (!name) return false;
+
+    name = name.trim();
+
+    if (name.length < 2) return false;
+
+    if (name.length > 12) return false;
+
+    const regex =
+        /^[가-힣a-zA-Z0-9]+$/;
+
+    return regex.test(name);
+
+}
+
+function villageExists(name) {
+
+    name = name.trim();
+
+    for (const id in villageManager.data.villages) {
+
+        const village =
+            villageManager.data.villages[id];
+
+        if (
+            village.name === name
+        ) {
+
+            return true;
+
+        }
+
+    }
+
+    return false;
+
+}
+
+
+/* ===========================
+   관리자
+=========================== */
+
+globalThis.village = {
+
+    manager:
+        villageManager,
+
+    reload(){
+
+        villageManager.load();
+
+    },
+
+    save(){
+
+        villageManager.save();
+
+    },
+
+    list(){
+
+        console.warn(
+            villageManager.data
+        );
+
+    }
+
+};
+
+/* ===========================
+   플레이어 입장
+=========================== */
+
+world.afterEvents.playerSpawn.subscribe(event => {
+
+    if (!event.initialSpawn) return;
+
+    const player = event.player;
+
+    if (!villageManager.has(player)) return;
+
+    player.sendMessage(
+        "§a마을 데이터가 로드되었습니다."
+    );
+
+});
+
+/* ===========================
+   자동 저장
+=========================== */
+
+system.runInterval(() => {
+
+    if (!villageManager) return;
+
+    villageManager.save();
+
+}, 20 * 60);
+
+/* ===========================
+   추가 명령어
+=========================== */
+
+world.beforeEvents.chatSend.subscribe(event => {
+
+    console.warn("CHAT:", event.message);
+
+    if (!villageManager) return;
+
+    const player = event.sender;
+    const msg = event.message.trim();
+
+        if (msg === "!villagereset") {
+
+        event.cancel = true;
+
+        system.run(() => {
+
+            villageManager.reset();
+
+        });
+
+        player.sendMessage("§a모든 마을 데이터를 초기화했습니다.");
+
+        return;
+
+    }
+
+    if (msg === "!마을 이동") {
+
+        event.cancel = true;
+
+        system.run(() => {
+
+            villageManager.teleport(player);
+
+        });
+
+        return;
+    }
+
+    if (msg === "!마을 정보") {
+
+        event.cancel = true;
+
+        system.run(() => {
+
+            villageManager.showInfo(player);
+
+        });
+
+        return;
+    }
+
+    if (msg === "!마을 생성") {
+
+        event.cancel = true;
+
+        system.run(() => {
+
+            villageManager.showCreateForm(player);
+
+        });
+
+        return;
+    }
+
+});
+
+/* ===========================
+   Structure
+=========================== */
+
+function placeStarterVillage(player){
+
+    const village =
+        villageManager.get(player);
+
+    if(!village) return;
+
+    try{
+
+        /*
+        world.structureManager.place(
+            "village_start",
+            world.getDimension(VILLAGE_DIMENSION),
+            village.center
+        );
+        */
+
+    }catch(e){
+
+        console.warn(e);
+
+    }
+
+}
+
+/* ===========================
+   TODO
+=========================== */
+
+/*
+
+v1.1
+
+- 초대
+- 탈퇴
+- 기부
+- 멤버 목록
+
+v1.2
+
+- 레벨업
+- 건물
+
+v2
+
+- NPC
+- 생산시설
+- 창고
+- 랭킹
+- 길드전
+
+*/
