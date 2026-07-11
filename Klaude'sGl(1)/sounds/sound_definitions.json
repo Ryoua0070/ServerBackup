@@ -1,0 +1,21 @@
+{
+	"notification": {
+		"category": "ui",
+		"sounds": [
+			{
+				"name": "sounds/custom/notification"
+			}
+		]
+	},
+
+	"negative.notification": {
+		"category": "ui",
+		"sounds": [
+			{
+				"name": "sounds/custom/negative.notification"
+			}
+		]
+	}
+
+}
+

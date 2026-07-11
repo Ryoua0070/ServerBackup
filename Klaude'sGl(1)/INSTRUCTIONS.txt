@@ -1,0 +1,23 @@
+--- INSTRUCTIONS: ---
+
+1. Add the “[RP]Klaudes_Glyphs” resource pack to Minecraft and activate it in your world.
+2. Go to this website: https://wiki.bedrock.dev/concepts/emojis.html
+- Scroll to the bottom to find a guide and a converter.
+3. Use the converter to get the glyph you want.
+For example, for the glyph from glyph_E1.png in grid 02:
+- Type “E102” in the HEX VALUE box.
+- Click CONVERT to get your result.
+4. Copy the result and paste it into your game chat. You should now see the glyphs!
+
+--- FAQs: ---
+
+[Q1] How do I use glyph_E8 or other glyphs?
+Just repeat the process. Instead of using E1, use the number for the glyph you want. For glyph_E8, use E8. Your input should look like this: E800, E801, E802, etc. Then, click CONVERT.
+
+[Q2] How do I add my own custom icons?
+Modify the existing glyph PNG in the resource pack and add your icon in the next grids.
+
+[Q3] Is it ok for me to make edits and republish the content of this RP online?
+Yes! I'd appreciate if you can credit me.
+
+	- KLAUDE was here (26/1/2024)
